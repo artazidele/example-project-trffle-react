@@ -1,195 +1,185 @@
-import React from 'react';
-import { useEffect, useState } from 'react';
-import CharityPlatformContract from '../../contracts/CharityPlatform.json';
-
+import React, { useEffect, useState, useCallback } from "react";
+import CharityPlatformContract from "../../contracts/CharityPlatform.json";
 const { ethers } = require("ethers");
 
 export function Project() {
-
-    const account7 = "0x15fAA99E68F256CFc6A61703C1b209AAc059254b";
-    const account10 = "0x46956ae2A728B38E168cd786A1077966427967AB";
-
-    const [account, setAccount] = useState('');
+    const [account, setAccount] = useState("");
     const [accountAmount, setAccountAmount] = useState(0);
-
-    const [amount, setAmount] = useState();
-
+    const [amount, setAmount] = useState("");
+    const [amountError, setAmountError] = useState(false);
     const [project, setProject] = useState(null);
     const [milestones, setMilestones] = useState([]);
+    const [loading, setLoading] = useState(false);
 
-    const [amountError, setAmountError] = useState(false);
-
-    const id = window.location.href.split('/')[3];
-
-    useEffect(() => {
-        getProject();
-    }, [account]);
+    const id = window.location.href.split("/")[3];
 
     useEffect(() => {
         requestAccount();
-    }, []);
+        fetchProjectData();
+    }, [account]);
 
-    async function requestAccount() {
+    const requestAccount = useCallback(async () => {
         if (window.ethereum == null) {
             console.log("MetaMask not installed; using read-only defaults");
-        } else {
-            const account = await window.ethereum.request({ method: 'eth_requestAccounts' });
-            const uppercaseAddress = ethers.utils.getAddress(account[0]);
-            setAccount(uppercaseAddress);
-            // setAccount(account[0]);
+            return;
         }
-    }
-
-    async function getProject() {
-        const contractAddress = localStorage.getItem('contract');
-        const signerAddress = localStorage.getItem('contract');
-
         try {
-            const provider = new ethers.providers.Web3Provider(window.ethereum);
-            const signer = provider.getSigner(signerAddress);
-            const thisContract = new ethers.Contract(contractAddress, CharityPlatformContract.abi, signer);
+            const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+            setAccount(ethers.utils.getAddress(accounts[0]));
+        } catch (error) {
+            console.error("Failed to fetch account:", error);
+        }
+    }, []);
 
-            const projectWithId = await thisContract.getProject(id);
-            setProject(projectWithId);
+    const initializeContract = useCallback(() => {
+        const contractAddress = localStorage.getItem("contract");
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        const signer = provider.getSigner();
+        return new ethers.Contract(contractAddress, CharityPlatformContract.abi, signer);
+    }, []);
 
-            const milestoneCount = projectWithId.milestoneCount.toString();
-            const milestoneArray = [];
-            for (let i=0; i<milestoneCount; i++) {
-                const milestoneWithId = await thisContract.getMilestone(id, i);
-                milestoneArray.push(milestoneWithId);
+    const fetchProjectData = useCallback(async () => {
+        setLoading(true);
+        try {
+            const thisContract = initializeContract();
+            const projectData = await thisContract.getProject(id);
+
+            const milestoneCount = projectData.milestoneCount.toNumber();
+            const milestonesData = [];
+            for (let i = 0; i < milestoneCount; i++) {
+                const milestone = await thisContract.getMilestone(id, i);
+                milestonesData.push(milestone);
             }
-            setMilestones(milestoneArray);
-            getProjectDonations();
-        } catch (error) {
-            console.error("Error:", error);
-        }
-    }
 
-    async function deactivateProject() {
-        const contractAddress = localStorage.getItem('contract');
-        const signerAddress = localStorage.getItem('signer');
-        try {
-            const provider = new ethers.providers.Web3Provider(window.ethereum);
-            const signer = provider.getSigner(signerAddress);
-            const thisContract = new ethers.Contract(contractAddress, CharityPlatformContract.abi, signer);
-            const project = await thisContract.deactivateProject(id);
-            await project.wait();
-            getProject();
-        } catch (error) {
-            console.error("Error:", error);
-        }
-    }
+            setProject(projectData);
+            setMilestones(milestonesData);
 
-    async function getProjectDonations() {
-        const contractAddress = localStorage.getItem('contract');
-        const signerAddress = localStorage.getItem('signer');
-
-        try {
-            const provider = new ethers.providers.Web3Provider(window.ethereum);
-            const signer = provider.getSigner(signerAddress);
-            const thisContract = new ethers.Contract(contractAddress, CharityPlatformContract.abi, signer);
+            // Fetch donations for the current user
             const donations = await thisContract.getProjectDonations(id, account);
-            console.log(donations);
             setAccountAmount(parseInt(donations));
         } catch (error) {
-            console.error("Error:", error);
+            console.error("Error fetching project data:", error);
+        } finally {
+            setLoading(false);
         }
-    }
+    }, [account, id, initializeContract]);
 
-    async function donate(e) {
-        e.preventDefault();
-        setAmountError(false);
-        console.log(account);
-        console.log(project.charityAddress);
+    const deactivateProject = useCallback(async () => {
+        try {
+            const thisContract = initializeContract();
+            const tx = await thisContract.deactivateProject(id);
+            await tx.wait();
+            fetchProjectData();
+        } catch (error) {
+            console.error("Error deactivating project:", error);
+        }
+    }, [id, initializeContract, fetchProjectData]);
 
-        setAmount(2);
+    const donate = useCallback(
+        async (e) => {
+            e.preventDefault();
+            setAmountError(false);
 
-
-        if(isNaN(amount)) {
-            setAmountError(true);
-        } else {
-            const contractAddress = localStorage.getItem('contract');
-            const signerAddress = localStorage.getItem('signer');
-            try {
-                const provider = new ethers.providers.Web3Provider(window.ethereum);
-                const signer = provider.getSigner(signerAddress);
-                const thisContract = new ethers.Contract(contractAddress, CharityPlatformContract.abi, signer);
-    
-                // const projectWithId = await thisContract.donate(id, account, {value: amount});
-                // const uppercaseAddress = ethers.utils.getAddress(project.charityAddress);
-    //             const account7 = "0x15fAA99E68F256CFc6A61703C1b209AAc059254b";
-    // const account10 = "0x46956ae2A728B38E168cd786A1077966427967AB";
-
-                // console.log(project.charityAddress);
-                // const balance = await provider.getBalance(account7);
-                // const balance2 = await provider.getBalance(account10);
-                // console.log(ethers.utils.formatEther(balance));
-                // console.log(ethers.utils.formatEther(balance2))
-                
-                const tokenAmount = ethers.utils.parseUnits(amount.toString(), 18);
-
-                // const token = new ethers.Contract(project.charityAddress, [
-                //     "function approve(address spender, uint256 amount) external returns (bool)"
-                //   ], signer);
-                
-                //   const approveTx = await token.approve(account7, tokenAmount);
-                //   await approveTx.wait();
-
-                // const projectWithId = await thisContract.donate(id, account7, { value: tokenAmount });
-                const projectWithId = await thisContract.donate2(account10, { value: tokenAmount });
-                
-                
-                // const projectWithId = await thisContract.donateToken(id, account, amount);
-                await projectWithId.wait();
-                console.log(projectWithId);
-                // thisContract.on('DonationReceived', () => {
-                //     setAmount("");
-                //     getProject();
-                // });
-            } catch (error) {
-                console.error("Error:", error);
+            if (isNaN(amount) || +amount <= 0) {
+                setAmountError(true);
+                return;
             }
-        }
+
+            try {
+                const thisContract = initializeContract();
+                const tokenAmount = ethers.utils.parseUnits(amount.toString(), 18);
+                const tx = await thisContract.donate(account, { value: tokenAmount });
+                await tx.wait();
+                setAmount("");
+                fetchProjectData();
+            } catch (error) {
+                console.error("Error during donation:", error);
+            }
+        },
+        [amount, account, initializeContract, fetchProjectData]
+    );
+
+    if (loading) {
+        return <div>Loading...</div>;
     }
 
     return (
         <div>
-        {project && <div>
-        <h3 className='ml-6 my-8 text-4xl italic text-coffee_5 font-semibold'>{ project.name }</h3>
-        <div className='bg-white p-6 rounded-lg border-solid border-2 border-coffee_2'>
-            {project.isActive && <div className='w-full text-lime-900 italic text-xl text-right px-12 my-4'><p>Active</p></div>}
-            {!project.isActive && <div className='w-full text-red-900 italic text-xl text-right px-12 my-4'><p>Not active</p></div>}
-            <h2 className='font-semibold text-xl my-6'>Goal amount: { project.goalAmount.toString() } EUR</h2>
-            <h2 className='font-semibold text-xl my-6'>Raised amount: { project.raisedAmount.toString() } EUR</h2>
-            <h2 className='font-semibold text-xl my-6 pt-6 border-t-2 border-t-coffee_2'>Milestones: </h2>            
-            {milestones && milestones.map((milestone, index) => <div className='my-8 pb-6 border-b border-b-coffee_2' key={index++}>
-                <h2 className='font-medium text-lg my-4'>Target amount: { project.goalAmount.toString() } EUR</h2>
-                <h2 className='font-medium text-lg my-4'>Description:</h2>
-                <p>{ milestone.description }</p>
-            </div>)}
-            {(account && project) && <div>
-                {(account === project.charityAddress && project.isActive) && <div className=''>
-                    <button onClick={deactivateProject} className="bg-white text-center mt-12 hover:text-white hover:bg-red-900 hover:border-red-900 font-semibold text-red-900 py-2 px-4 border-2 border-red-900 rounded-lg">Deactivate project</button>
-                </div>}
-                {(account !== project.charityAddress && project.isActive) && <div>
-                    <p>Currently, you have donated { accountAmount } EUR.</p>
-                    <form>
-                        <div className="mt-6 flex items-center justify-between gap-2">
-                            <label className='font-semibold'>Amount (EUR): </label>
-                            <input value={amount} onChange={e => setAmount(e.target.value)} className="p-2 bg-transparent border-b-solid border-b border-b-coffee_5 grow"/>                    
-                        </div>  
-                        {amountError && <p className='w-full text-red-900 italic text-sm my-4'>Amount must be number.</p>}                  
-                        <button onClick={donate} className="bg-white text-center mt-12 hover:text-white hover:bg-lime-900 hover:border-lime-900 font-semibold text-lime-900 py-2 px-4 border-2 border-lime-900 rounded-lg">Donate</button>
+            {project && (
+                <div>
+                    <h3 className="ml-6 my-8 text-4xl italic text-coffee_5 font-semibold">{project.name || "Untitled Project"}</h3>
+                    <div className="bg-white p-6 rounded-lg border-solid border-2 border-coffee_2">
+                        <div
+                            className={`w-full italic text-xl text-right px-12 my-4 ${
+                                project.isActive ? "text-lime-900" : "text-red-900"
+                            }`}
+                        >
+                            <p>{project.isActive ? "Active" : "Not active"}</p>
+                        </div>
+                        <h2 className="font-semibold text-xl my-6">
+                            Goal amount: {project.goalAmount ? project.goalAmount.toString() : "N/A"} EUR
+                        </h2>
+                        <h2 className="font-semibold text-xl my-6">
+                            Raised amount: {project.raisedAmount ? project.raisedAmount.toString() : "N/A"} EUR
+                        </h2>
+                        <h2 className="font-semibold text-xl my-6 pt-6 border-t-2 border-t-coffee_2">Milestones:</h2>
 
-                    </form>
-                    {/* <button onClick={getProjectDonations} className="bg-white text-center mt-12 hover:text-white hover:bg-lime-900 hover:border-lime-900 font-semibold text-lime-900 py-2 px-4 border-2 border-lime-900 rounded-lg">Project donations</button> */}
+                        {milestones && milestones.length > 0 ? (
+                            milestones.map((milestone, index) => (
+                                <div className="my-8 pb-6 border-b border-b-coffee_2" key={index}>
+                                    <h2 className="font-medium text-lg my-4">
+                                        Target amount: {milestone.amount ? milestone.amount.toString() : "N/A"} EUR
+                                    </h2>
+                                    <h2 className="font-medium text-lg my-4">Description:</h2>
+                                    <p>{milestone.description || "No description provided."}</p>
+                                </div>
+                            ))
+                        ) : (
+                            <p>No milestones added yet.</p>
+                        )}
 
-                </div>}
-                <button onClick={donate} className="bg-white text-center mt-12 hover:text-white hover:bg-lime-900 hover:border-lime-900 font-semibold text-lime-900 py-2 px-4 border-2 border-lime-900 rounded-lg">Donate</button>
+                        {account && (
+                            <div>
+                                {account === project.charityAddress && project.isActive && (
+                                    <button
+                                        onClick={deactivateProject}
+                                        className="bg-white text-center mt-12 hover:text-white hover:bg-red-900 hover:border-red-900 font-semibold text-red-900 py-2 px-4 border-2 border-red-900 rounded-lg"
+                                    >
+                                        Deactivate project
+                                    </button>
+                                )}
 
-            </div>}
-            </div>
-        </div>}
+                                {account !== project.charityAddress && project.isActive && (
+                                    <div>
+                                        <p>Currently, you have donated {accountAmount || 0} EUR.</p>
+                                        <form>
+                                            <div className="mt-6 flex items-center justify-between gap-2">
+                                                <label className="font-semibold">Amount (EUR): </label>
+                                                <input
+                                                    value={amount}
+                                                    onChange={(e) => setAmount(e.target.value)}
+                                                    className="p-2 bg-transparent border-b-solid border-b border-b-coffee_5 grow"
+                                                />
+                                            </div>
+                                            {amountError && (
+                                                <p className="w-full text-red-900 italic text-sm my-4">
+                                                    Amount must be a positive number.
+                                                </p>
+                                            )}
+                                            <button
+                                                onClick={donate}
+                                                className="bg-white text-center mt-12 hover:text-white hover:bg-lime-900 hover:border-lime-900 font-semibold text-lime-900 py-2 px-4 border-2 border-lime-900 rounded-lg"
+                                            >
+                                                Donate
+                                            </button>
+                                        </form>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
-};
+}
